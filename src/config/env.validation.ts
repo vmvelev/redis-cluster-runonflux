@@ -58,6 +58,10 @@ export class EnvironmentVariables {
   @IsString()
   @IsOptional()
   API_KEY?: string;
+
+  @IsString()
+  @IsOptional()
+  REDIS_PASSWORD?: string;
 }
 
 export function validate(config: Record<string, unknown>) {
@@ -80,6 +84,7 @@ export interface AppConfig {
   fluxApiUrl: string;
   appName: string;
   redisPort: number;
+  redisPassword: string;
   pollInterval: number;
   healthCheckInterval: number;
   failoverTimeout: number;
@@ -95,6 +100,7 @@ export function getDefaultConfig(): AppConfig {
     fluxApiUrl: process.env.FLUX_API_URL || 'https://api.runonflux.io',
     appName: process.env.APP_NAME || 'redis-cluster',
     redisPort: parseInt(process.env.REDIS_PORT, 10) || 6379,
+    redisPassword: process.env.REDIS_PASSWORD || '',
     pollInterval: parseInt(process.env.POLL_INTERVAL, 10) || 10000,
     healthCheckInterval:
       parseInt(process.env.HEALTH_CHECK_INTERVAL, 10) || 5000,

@@ -1,78 +1,20 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import Redis from 'ioredis';
-import { RedisNode } from '../interfaces/redis-node.interface';
 import { MasterElectionService } from './master-election.service';
+import { RedisConnectionHandler } from './redis-connection.handler';
 import { ClusterConfig } from '../config/cluster.config';
 
 @Injectable()
 export class DataSyncService {
   private readonly logger = new Logger(DataSyncService.name);
-  private redisConnections: Map<string, Redis> = new Map();
 
   constructor(
     private readonly configService: ConfigService<ClusterConfig>,
     private readonly masterElectionService: MasterElectionService,
+    private readonly redisConnectionHandler: RedisConnectionHandler,
     private readonly eventEmitter: EventEmitter2,
-  ) {
-    // Subscribe to health change events to cleanup connections
-    this.eventEmitter.on('node.health.changed', ({ node, isHealthy }) => {
-      if (!isHealthy) {
-        this.cleanupNodeConnection(node);
-      }
-    });
-  }
-
-  private cleanupNodeConnection(node: RedisNode): void {
-    const key = `${node.ip}:${node.port}`;
-    if (this.redisConnections.has(key)) {
-      const connection = this.redisConnections.get(key);
-      connection.disconnect();
-      this.redisConnections.delete(key);
-      this.logger.log(`Cleaned up connection to ${key}`);
-    }
-  }
-
-  private isNodeActive(node: RedisNode): boolean {
-    return (
-      node.status === 'active' &&
-      (node === this.masterElectionService.getCurrentMaster() ||
-        this.masterElectionService.getReplicas().includes(node))
-    );
-  }
-
-  private getRedisConnection(node: RedisNode): Redis | null {
-    if (!this.isNodeActive(node)) {
-      this.logger.debug(`Skipping connection to inactive node ${node.ip}`);
-      return null;
-    }
-
-    const key = `${node.ip}:${node.port}`;
-    if (!this.redisConnections.has(key)) {
-      const connection = new Redis({
-        host: node.ip,
-        port: node.port,
-        connectTimeout: 5000,
-        retryStrategy: (times) => {
-          const delay = Math.min(times * 50, 2000);
-          return delay;
-        },
-      });
-
-      connection.on('error', (error) => {
-        this.logger.error(
-          `Redis connection error for ${node.ip}: ${error.message}`,
-        );
-        if (!this.isNodeActive(node)) {
-          this.cleanupNodeConnection(node);
-        }
-      });
-
-      this.redisConnections.set(key, connection);
-    }
-    return this.redisConnections.get(key);
-  }
+  ) {}
 
   async write(key: string, value: string): Promise<boolean> {
     const master = this.masterElectionService.getCurrentMaster();
@@ -80,7 +22,7 @@ export class DataSyncService {
       throw new Error('No master node available');
     }
 
-    const masterConnection = this.getRedisConnection(master);
+    const masterConnection = this.redisConnectionHandler.getConnection(master);
     if (!masterConnection) {
       throw new Error('Cannot establish connection to master node');
     }
@@ -96,33 +38,47 @@ export class DataSyncService {
 
       if (replicationMode === 'sync') {
         // Only wait for active replicas
-        const activeReplicas = replicas.filter((replica) =>
-          this.isNodeActive(replica),
-        );
-        const replicaPromises = activeReplicas.map(async (replica) => {
-          const redis = this.getRedisConnection(replica);
-          if (!redis) return null;
+        const replicaPromises = replicas.map(async (replica) => {
+          const redis = this.redisConnectionHandler.getConnection(replica);
+          if (!redis) {
+            this.logger.warn(
+              `Cannot establish connection to replica ${replica.ip}`,
+            );
+            return null;
+          }
 
-          const result = await Promise.race([
-            redis.wait(1, syncWaitTime),
-            new Promise((_, reject) =>
-              setTimeout(() => reject(new Error('Sync timeout')), syncWaitTime),
-            ),
-          ]);
-          return { replica, result };
+          try {
+            const result = await Promise.race([
+              redis.wait(1, syncWaitTime),
+              new Promise((_, reject) =>
+                setTimeout(
+                  () => reject(new Error('Sync timeout')),
+                  syncWaitTime,
+                ),
+              ),
+            ]);
+            return { replica, result };
+          } catch (error) {
+            this.logger.error(
+              `Sync failed for replica ${replica.ip}: ${error.message}`,
+            );
+            return null;
+          }
         });
+
+        const validPromises = replicaPromises.filter((p) => p !== null);
 
         switch (consistencyLevel) {
           case 'all':
-            await Promise.all(replicaPromises);
+            await Promise.all(validPromises);
             break;
           case 'quorum':
-            const quorum = Math.floor(activeReplicas.length / 2) + 1;
-            await Promise.all(replicaPromises.slice(0, quorum));
+            const quorum = Math.floor(replicas.length / 2) + 1;
+            await Promise.all(validPromises.slice(0, quorum));
             break;
           case 'one':
-            if (activeReplicas.length > 0) {
-              await Promise.race(replicaPromises);
+            if (validPromises.length > 0) {
+              await Promise.race(validPromises);
             }
             break;
         }
@@ -149,11 +105,13 @@ export class DataSyncService {
     const nodes = [master, ...replicas];
 
     switch (consistencyLevel) {
-      case 'one':
+      case 'one': {
         // Try master first, then replicas
         for (const node of nodes) {
+          const redis = this.redisConnectionHandler.getConnection(node);
+          if (!redis) continue;
+
           try {
-            const redis = this.getRedisConnection(node);
             const value = await redis.get(key);
             return value;
           } catch (error) {
@@ -162,31 +120,35 @@ export class DataSyncService {
           }
         }
         throw new Error('No nodes available for read operation');
+      }
 
-      case 'quorum':
+      case 'quorum': {
         const quorum = Math.floor(nodes.length / 2) + 1;
-        const values = await Promise.allSettled(
-          nodes.slice(0, quorum).map(async (node) => {
-            const redis = this.getRedisConnection(node);
-            return redis.get(key);
-          }),
-        );
+        const readPromises = nodes.slice(0, quorum).map(async (node) => {
+          const redis = this.redisConnectionHandler.getConnection(node);
+          if (!redis) return null;
 
-        const successfulValues = values
-          .filter(
-            (result): result is PromiseFulfilledResult<string> =>
-              result.status === 'fulfilled' && result.value !== null,
-          )
-          .map((result) => result.value);
+          try {
+            return await redis.get(key);
+          } catch (error) {
+            this.logger.warn(`Read failed from ${node.ip}: ${error.message}`);
+            return null;
+          }
+        });
 
-        if (successfulValues.length < quorum) {
+        const results = await Promise.all(readPromises);
+        const validResults = results.filter((result) => result !== null);
+
+        if (validResults.length < quorum) {
           throw new Error('Failed to achieve quorum for read operation');
         }
 
         // Return the most common value
         const valueMap = new Map<string, number>();
-        successfulValues.forEach((value) => {
-          valueMap.set(value, (valueMap.get(value) || 0) + 1);
+        validResults.forEach((value) => {
+          if (value) {
+            valueMap.set(value, (valueMap.get(value) || 0) + 1);
+          }
         });
 
         let maxCount = 0;
@@ -199,22 +161,36 @@ export class DataSyncService {
         });
 
         return mostCommonValue;
+      }
 
-      case 'all':
-        const allValues = await Promise.all(
-          nodes.map(async (node) => {
-            const redis = this.getRedisConnection(node);
-            return redis.get(key);
-          }),
-        );
+      case 'all': {
+        const readPromises = nodes.map(async (node) => {
+          const redis = this.redisConnectionHandler.getConnection(node);
+          if (!redis) return null;
+
+          try {
+            return await redis.get(key);
+          } catch (error) {
+            this.logger.warn(`Read failed from ${node.ip}: ${error.message}`);
+            return null;
+          }
+        });
+
+        const results = await Promise.all(readPromises);
+        const validResults = results.filter((result) => result !== null);
+
+        if (validResults.length !== nodes.length) {
+          throw new Error('Failed to read from all nodes');
+        }
 
         // Check if all values are consistent
-        const uniqueValues = new Set(allValues.filter(Boolean));
+        const uniqueValues = new Set(validResults.filter(Boolean));
         if (uniqueValues.size > 1) {
           throw new Error('Inconsistent values across nodes');
         }
 
-        return allValues[0];
+        return validResults[0];
+      }
 
       default:
         throw new Error(`Unsupported consistency level: ${consistencyLevel}`);
@@ -223,17 +199,20 @@ export class DataSyncService {
 
   async monitorReplicationStatus(): Promise<void> {
     const master = this.masterElectionService.getCurrentMaster();
-    const replicas = this.masterElectionService.getReplicas();
-
     if (!master) {
       return;
     }
 
     try {
-      const masterRedis = this.getRedisConnection(master);
-      const replicationInfo = await masterRedis.info('replication');
+      const masterConnection =
+        this.redisConnectionHandler.getConnection(master);
+      if (!masterConnection) {
+        throw new Error('Cannot establish connection to master node');
+      }
 
-      // Parse replication info and emit status
+      const replicationInfo = await masterConnection.info('replication');
+      const replicas = this.masterElectionService.getReplicas();
+
       this.eventEmitter.emit('replication.status.updated', {
         master: master.ip,
         replicas: replicas.map((r) => r.ip),
@@ -242,13 +221,5 @@ export class DataSyncService {
     } catch (error) {
       this.logger.error(`Failed to monitor replication: ${error.message}`);
     }
-  }
-
-  // Clean up connections when service is destroyed
-  async onModuleDestroy() {
-    for (const connection of this.redisConnections.values()) {
-      connection.disconnect();
-    }
-    this.redisConnections.clear();
   }
 }

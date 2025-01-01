@@ -9,6 +9,7 @@ import { ClusterController } from './controllers/cluster.controller';
 import { DataController } from './controllers/data.controller';
 import { validate, getDefaultConfig } from './config/env.validation';
 import { SyncMonitorService } from './services/sync-monitor.service';
+import { RedisConnectionHandler } from './services/redis-connection.handler';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { SyncMonitorService } from './services/sync-monitor.service';
   ],
   controllers: [ClusterController, DataController],
   providers: [
+    RedisConnectionHandler,
     NodeDiscoveryService,
     HealthCheckService,
     MasterElectionService,

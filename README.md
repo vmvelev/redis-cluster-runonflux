@@ -1,3 +1,7 @@
+![Database flow](https://github.com/user-attachments/assets/d98ab2e5-631f-47ba-b76d-c3a1b8645fb8)
+
+![Redis cluster management - FLUX](https://github.com/user-attachments/assets/ece9df25-0a67-4771-bb13-8da558d3759d)
+
 # Redis Cluster Manager for RunOnFlux
 
 A distributed Redis management solution designed for RunOnFlux platform, providing high availability and automatic synchronization between Redis nodes.

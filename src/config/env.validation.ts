@@ -2,21 +2,10 @@ import { plainToClass, Transform } from 'class-transformer';
 import {
   IsString,
   IsNumber,
-  IsEnum,
   IsOptional,
   validateSync,
+  Min,
 } from 'class-validator';
-
-enum ReplicationMode {
-  SYNC = 'sync',
-  ASYNC = 'async',
-}
-
-enum ConsistencyLevel {
-  ONE = 'one',
-  QUORUM = 'quorum',
-  ALL = 'all',
-}
 
 export class EnvironmentVariables {
   @IsString()
@@ -32,36 +21,30 @@ export class EnvironmentVariables {
   @Transform(({ value }) => (value ? parseInt(value, 10) : undefined))
   REDIS_PORT?: number;
 
-  @IsNumber()
+  @IsString()
   @IsOptional()
-  @Transform(({ value }) => (value ? parseInt(value, 10) : undefined))
-  POLL_INTERVAL?: number;
-
-  @IsNumber()
-  @IsOptional()
-  @Transform(({ value }) => (value ? parseInt(value, 10) : undefined))
-  HEALTH_CHECK_INTERVAL?: number;
-
-  @IsNumber()
-  @IsOptional()
-  @Transform(({ value }) => (value ? parseInt(value, 10) : undefined))
-  FAILOVER_TIMEOUT?: number;
-
-  @IsEnum(ReplicationMode)
-  @IsOptional()
-  REPLICATION_MODE?: ReplicationMode;
-
-  @IsEnum(ConsistencyLevel)
-  @IsOptional()
-  CONSISTENCY_LEVEL?: ConsistencyLevel;
+  REDIS_PASSWORD?: string;
 
   @IsString()
   @IsOptional()
   API_KEY?: string;
 
-  @IsString()
+  @IsNumber()
   @IsOptional()
-  REDIS_PASSWORD?: string;
+  @Transform(({ value }) => (value ? parseInt(value, 10) : undefined))
+  WRITE_TIMEOUT?: number;
+
+  @IsNumber()
+  @IsOptional()
+  @Transform(({ value }) => (value ? parseInt(value, 10) : undefined))
+  @Min(5000)
+  NODE_DISCOVERY_INTERVAL?: number;
+
+  @IsNumber()
+  @IsOptional()
+  @Transform(({ value }) => (value ? parseInt(value, 10) : undefined))
+  @Min(10)
+  SYNC_SCAN_COUNT?: number;
 }
 
 export function validate(config: Record<string, unknown>) {
@@ -70,7 +53,7 @@ export function validate(config: Record<string, unknown>) {
   });
 
   const errors = validateSync(validatedConfig, {
-    skipMissingProperties: true, // This is important!
+    skipMissingProperties: true,
     whitelist: true,
   });
 
@@ -81,37 +64,27 @@ export function validate(config: Record<string, unknown>) {
 }
 
 export interface AppConfig {
-  fluxApiUrl: string;
+  fluxApi: string;
   appName: string;
   redisPort: number;
   redisPassword: string;
-  pollInterval: number;
-  healthCheckInterval: number;
-  failoverTimeout: number;
-  replicationMode: ReplicationMode;
-  consistencyLevel: ConsistencyLevel;
-  syncWaitTime: number;
   apiKey: string;
+  writeTimeout: number;
+  nodeDiscoveryInterval: number;
+  syncScanCount: number;
 }
 
 // Helper function to get default configuration
 export function getDefaultConfig(): AppConfig {
   return {
-    fluxApiUrl: process.env.FLUX_API_URL || 'https://api.runonflux.io',
+    fluxApi: process.env.FLUX_API_URL || 'https://api.runonflux.io',
     appName: process.env.APP_NAME || 'redis-cluster',
     redisPort: parseInt(process.env.REDIS_PORT, 10) || 6379,
     redisPassword: process.env.REDIS_PASSWORD || '',
-    pollInterval: parseInt(process.env.POLL_INTERVAL, 10) || 10000,
-    healthCheckInterval:
-      parseInt(process.env.HEALTH_CHECK_INTERVAL, 10) || 5000,
-    failoverTimeout: parseInt(process.env.FAILOVER_TIMEOUT, 10) || 30000,
-    replicationMode:
-      (process.env.REPLICATION_MODE as ReplicationMode) ||
-      ReplicationMode.ASYNC,
-    consistencyLevel:
-      (process.env.CONSISTENCY_LEVEL as ConsistencyLevel) ||
-      ConsistencyLevel.ONE,
-    syncWaitTime: parseInt(process.env.SYNC_WAIT_TIME, 10) || 5000,
     apiKey: process.env.API_KEY || '',
+    writeTimeout: parseInt(process.env.WRITE_TIMEOUT, 10) || 5000,
+    nodeDiscoveryInterval:
+      parseInt(process.env.NODE_DISCOVERY_INTERVAL, 10) || 30000,
+    syncScanCount: parseInt(process.env.SYNC_SCAN_COUNT, 10) || 100,
   };
 }

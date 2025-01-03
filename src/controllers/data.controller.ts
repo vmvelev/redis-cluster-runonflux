@@ -8,53 +8,47 @@ import {
   HttpStatus,
   UseGuards,
 } from '@nestjs/common';
-import { DataSyncService } from '../services/data-sync.service';
+import { DataService } from '../services/data.service';
 import { ApiKeyGuard } from '../guards/api-key.guard';
-
-class WriteDataDto {
-  key: string;
-  value: string;
-}
+import { WriteDataDto, WriteResult } from '../interfaces/data.interface';
 
 @Controller('data')
 export class DataController {
-  constructor(private readonly dataSyncService: DataSyncService) {}
+  constructor(private readonly dataService: DataService) {}
 
   @Post()
   @UseGuards(ApiKeyGuard)
-  async writeData(@Body() data: WriteDataDto) {
-    try {
-      await this.dataSyncService.write(data.key, data.value);
-      return { success: true, message: 'Data written successfully' };
-    } catch (error) {
+  async writeData(@Body() data: WriteDataDto): Promise<{
+    success: boolean;
+    writtenTo: number;
+    totalNodes: number;
+    results: WriteResult[];
+  }> {
+    const results = await this.dataService.write(data.key, data.value);
+    const successfulWrites = results.filter((r) => r.success).length;
+
+    if (successfulWrites === 0) {
       throw new HttpException(
-        error.message || 'Failed to write data',
+        'Failed to write to any node',
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
+
+    return {
+      success: true,
+      writtenTo: successfulWrites,
+      totalNodes: results.length,
+      results,
+    };
   }
 
   @Get(':key')
   @UseGuards(ApiKeyGuard)
   async readData(@Param('key') key: string) {
-    try {
-      const value = await this.dataSyncService.read(key);
-      if (value === null) {
-        throw new HttpException('Key not found', HttpStatus.NOT_FOUND);
-      }
-      return { key, value };
-    } catch (error) {
-      throw new HttpException(
-        error.message || 'Failed to read data',
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
+    const result = await this.dataService.read(key);
+    if (!result) {
+      throw new HttpException('Key not found', HttpStatus.NOT_FOUND);
     }
-  }
-
-  @Get('sync/status')
-  @UseGuards(ApiKeyGuard)
-  async getSyncStatus() {
-    await this.dataSyncService.monitorReplicationStatus();
-    return { message: 'Replication status monitored' };
+    return result;
   }
 }

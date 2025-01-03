@@ -1,15 +1,10 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { EventEmitterModule } from '@nestjs/event-emitter';
 import { NodeDiscoveryService } from './services/node-discovery.service';
-import { HealthCheckService } from './services/health-check.service';
-import { MasterElectionService } from './services/master-election.service';
-import { DataSyncService } from './services/data-sync.service';
-import { ClusterController } from './controllers/cluster.controller';
+import { DataService } from './services/data.service';
+import { SyncService } from './services/sync.service';
 import { DataController } from './controllers/data.controller';
 import { validate, getDefaultConfig } from './config/env.validation';
-import { SyncMonitorService } from './services/sync-monitor.service';
-import { RedisConnectionHandler } from './services/redis-connection.handler';
 
 @Module({
   imports: [
@@ -18,16 +13,8 @@ import { RedisConnectionHandler } from './services/redis-connection.handler';
       validate,
       load: [getDefaultConfig],
     }),
-    EventEmitterModule.forRoot(),
   ],
-  controllers: [ClusterController, DataController],
-  providers: [
-    RedisConnectionHandler,
-    NodeDiscoveryService,
-    HealthCheckService,
-    MasterElectionService,
-    DataSyncService,
-    SyncMonitorService,
-  ],
+  controllers: [DataController],
+  providers: [NodeDiscoveryService, DataService, SyncService],
 })
 export class AppModule {}

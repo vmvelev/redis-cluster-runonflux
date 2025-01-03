@@ -46,8 +46,7 @@ Name: redis
 Repository: bitnami/redis:latest
 Container Ports: [6379]
 Domains: [""]
-Environment Variables:
-  - REDIS_PASSWORD=yourPasswordHere
+Environment Variables: ["REDIS_PASSWORD=yourPasswordHere"]
 ```
 
 ### 2. Cluster Manager Component
@@ -57,11 +56,7 @@ Name: clusterManager
 Repository: vmvelev/redis-cluster-manager:latest
 Container Ports: [3000]
 Domains: [""]
-Environment Variables:
-  - APP_NAME=theNameOfYourApp
-  - REDIS_PORT=autoAssignedRedisPort
-  - API_KEY=yourSecretApiKey
-  - REDIS_PASSWORD=yourPasswordFromRedis
+Environment Variables: ["APP_NAME=theNameOfYourApp","REDIS_PORT=autoAssignedRedisPort","API_KEY=yourSecretApiKey","REDIS_PASSWORD=yourPasswordFromRedis"]
 ```
 
 ### 3. Your Application Component
@@ -71,8 +66,7 @@ Name: yourAppName
 Repository: your-image:tag
 Container Ports: [your-port]
 Domains: [your-domains]
-Environment Variables:
-  - API_KEY=sameKeyAsClusterManager
+Environment Variables: ["API_KEY=sameKeyAsClusterManager"]
 ```
 
 ## Example Configuration
@@ -178,7 +172,6 @@ Response:
 1. **Port Management**
    - All ports are auto-assigned by Flux
    - Use the assigned ports in your configuration
-   - The cluster manager automatically handles port discovery
 
 2. **Configuration Matching**
    - APP_NAME must match across components

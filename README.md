@@ -1,99 +1,217 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Redis Cluster Manager for RunOnFlux
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+A distributed Redis management solution designed for RunOnFlux platform, providing high availability and automatic synchronization between Redis nodes.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://coveralls.io/github/nestjs/nest?branch=master" target="_blank"><img src="https://coveralls.io/repos/github/nestjs/nest/badge.svg?branch=master#9" alt="Coverage" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## Overview
 
-## Description
+This project provides a distributed Redis setup with the following features:
+- Multiple Redis instances for high availability
+- Automatic node discovery
+- Data synchronization between nodes
+- REST API for data operations
+- Timestamp-based conflict resolution
+- Distributed locking mechanism
+- Automatic failover handling
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+## Architecture
 
-## Project setup
+The system consists of three main components:
 
-```bash
-$ npm install
+1. **Redis Component** (Data Storage)
+   - Multiple Redis instances running in parallel
+   - Persistent storage with appendonly enabled
+   - Password authentication
+
+2. **Redis Cluster Manager** (Orchestration Layer)
+   - Manages connections to all Redis nodes
+   - Handles data synchronization
+   - Provides REST API for operations
+   - Multiple instances for high availability
+
+3. **Your Application** (Client Layer)
+   - Connects to the cluster manager via REST API
+   - Uses API key authentication
+   - Can be any application that needs Redis storage
+
+## Setup on RunOnFlux
+
+### 1. Redis Component
+
+```plaintext
+Name: redis
+Repository: bitnami/redis:latest
+Container Ports: [6379]
+Domains: [""]
+Environment Variables:
+  - REDIS_PASSWORD=yourPasswordHere
 ```
 
-## Compile and run the project
+### 2. Cluster Manager Component
 
-```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+```plaintext
+Name: clusterManager
+Repository: vmvelev/redis-cluster-manager:latest
+Container Ports: [3000]
+Domains: [""]
+Environment Variables:
+  - APP_NAME=theNameOfYourApp
+  - REDIS_PORT=autoAssignedRedisPort
+  - API_KEY=yourSecretApiKey
+  - REDIS_PASSWORD=yourPasswordFromRedis
 ```
 
-## Run tests
+### 3. Your Application Component
 
-```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+```plaintext
+Name: yourAppName
+Repository: your-image:tag
+Container Ports: [your-port]
+Domains: [your-domains]
+Environment Variables:
+  - API_KEY=sameKeyAsClusterManager
 ```
 
-## Deployment
+## Example Configuration
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+Here's a complete example setup:
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+```plaintext
+App name: myAwesomeApp
 
-```bash
-$ npm install -g mau
-$ mau deploy
+Component #1 (Redis):
+- Name: redis
+- Repository: bitnami/redis:latest
+- Ports: [31309]
+- Container Ports: [6379]
+- Environment: ["REDIS_PASSWORD=mySuperSecretPassword"]
+
+Component #2 (Cluster Manager):
+- Name: clusterManager
+- Repository: vmvelev/redis-cluster-manager:latest
+- Ports: [35270]
+- Container Ports: [3000]
+- Environment: [
+    "APP_NAME=myAwesomeApp",
+    "REDIS_PORT=31309",
+    "API_KEY=mySecretApiKey",
+    "REDIS_PASSWORD=mySuperSecretPassword"
+  ]
+
+Component #3 (Your App):
+- Name: myAwesomeComponent
+- Repository: vmvelev/my-awesome-component:latest
+- Ports: [35333]
+- Container Ports: [3333]
+- Environment: ["API_KEY=mySecretApiKey"]
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+## API Usage
 
-## Resources
+### Writing Data
 
-Check out a few resources that may come in handy when working with NestJS:
+```bash
+curl -X POST http://[host]:[flux-port]/data \
+  -H "x-api-key: your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{"key": "myKey", "value": "myValue"}'
+```
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+Response:
+```json
+{
+  "success": true,
+  "writtenTo": 3,
+  "totalNodes": 3,
+  "results": [
+    {"nodeIp": "1.2.3.4", "success": true},
+    {"nodeIp": "2.3.4.5", "success": true},
+    {"nodeIp": "3.4.5.6", "success": true}
+  ]
+}
+```
 
-## Support
+### Reading Data
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+```bash
+curl http://[host]:[flux-port]/data/myKey \
+  -H "x-api-key: your-api-key"
+```
 
-## Stay in touch
+Response:
+```json
+{
+  "value": "myValue",
+  "timestamp": 1704243600000
+}
+```
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+## How It Works
 
-## License
+1. **Node Discovery**
+   - The cluster manager periodically discovers Redis nodes through Flux API
+   - New nodes are automatically added to the connection pool
+   - Failed nodes are automatically removed
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+2. **Data Writing**
+   - Data is written to all available Redis nodes
+   - Each write includes a timestamp
+   - Configurable write timeout
+   - Returns success status for each node
+
+3. **Data Reading**
+   - Reads from all available nodes
+   - Returns the value with the latest timestamp
+   - Handles node failures gracefully
+
+4. **Node Synchronization**
+   - New nodes are automatically synchronized
+   - Uses distributed locking to prevent concurrent syncs
+   - Batch processing for efficient data transfer
+   - Automatic retry on failure
+
+## Important Notes
+
+1. **Port Management**
+   - All ports are auto-assigned by Flux
+   - Use the assigned ports in your configuration
+   - The cluster manager automatically handles port discovery
+
+2. **Configuration Matching**
+   - APP_NAME must match across components
+   - API_KEY must match between your app and cluster manager
+   - REDIS_PASSWORD must match between Redis and cluster manager
+
+3. **Multiple Instances**
+   - Multiple instances of Redis and cluster manager will be created
+   - Load balancing is handled automatically
+   - Data consistency is maintained across instances
+
+4. **Security**
+   - Use strong passwords for Redis
+   - Use secure API keys
+   - Keep sensitive information in environment variables
+
+## Troubleshooting
+
+1. **Connection Issues**
+   - Verify ports are correctly configured
+   - Check API key and Redis password
+   - Ensure all components are running
+
+2. **Data Synchronization**
+   - Check cluster manager logs for sync status
+   - Verify Redis connectivity
+   - Check for lock conflicts
+
+3. **Performance**
+   - Monitor write timeouts
+   - Check node discovery interval
+   - Adjust batch size for synchronization
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## Donations
+
+If I helped you somehow, feel free to buy me a beer by donating FLUX to `t1P2GfcmF9HBEFTuoCGNNqXKuPgCjEjCHFw`
